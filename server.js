@@ -1,5 +1,3 @@
-//server.js
-
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -97,8 +95,31 @@ io.on('connection', (socket) => {
     });
 });
 
+// Route: Add new interview
+app.post('/add_interview', (req, res) => {
+    const { governorate, delegation, gender, age, job_status, marital_status, children_num } = req.body;
+  
+    console.log('Received client:', req.body); // Log the received data
+  
+    const query = `
+        INSERT INTO client ( governorate, delegation, gender, age, job_status, marital_status, children_num)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    `;
+  
+    connection.query(
+        query,
+        [ governorate, delegation, gender, age, job_status, marital_status, children_num],
+        (err, result) => {
+            if (err) {
+                console.error('Error inserting interview :', err);
+                return res.status(500).json({ error: 'Error adding an interview' });
+            }
+            res.status(200).json({ message: 'interview added successfully' });
+        }
+    );
+  });
 
-// Start server
+// Start the server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
