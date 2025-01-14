@@ -15,7 +15,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Database connection
-const connection = mysql.createConnection({
+const pool = mysql.createPool({
     host: 'localhost',
     user: 'root',
     password: 'wx80@zeineb',
@@ -23,34 +23,26 @@ const connection = mysql.createConnection({
 });
 
 
-// Connect to the database
-connection.connect(err => {
-    if (err) {
-        console.error('Error connecting to the database:', err);
-        process.exit(1);
-    }
-    console.log('Connected to MySQL database.');
-});
+// Promisify pool for easier error handling
+const promisePool = pool.promise();
 
 // Get interviewer data by ID
-app.get('/api/interviewer/:id', (req, res) => {
-    const staffId = req.params.id;
-    connection.query(
-        'SELECT * FROM interv WHERE Staff_ID = ?',
-        [staffId],
-        (err, results) => {
-            if (err) {
-                console.error('Error fetching interviewer:', err);
-                res.status(500).json({ error: 'Database error' });
-                return;
-            }
-            if (results.length === 0) {
-                res.status(404).json({ error: 'Interviewer not found' });
-                return;
-            }
-            res.json(results[0]);
+app.get('/api/interviewer/:id', async (req, res) => {
+    try {
+        const [rows] = await promisePool.query(
+            'SELECT * FROM interv WHERE Staff_ID = ?',
+            [req.params.id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Interviewer not found' });
         }
-    );
+
+        res.json(rows[0]);
+    } catch (err) {
+        console.error('Error fetching interviewer:', err);
+        res.status(500).json({ error: 'Database error' });
+    }
 });
 
 // Socket connection handling
@@ -59,29 +51,30 @@ io.on('connection', (socket) => {
     let currentStaffId = null;
 
     // Handle staff ID registration
-    socket.on('register-staff', (staffId) => {
-        currentStaffId = staffId;
-        connection.query(
-            'SELECT * FROM interv WHERE Staff_ID = ?',
-            [staffId],
-            (err, results) => {
-                if (err || results.length === 0) {
-                    socket.emit('registration-error', 'Invalid Staff ID');
-                    return;
-                }
-                const interviewer = results[0];
-                socket.emit('registration-success', interviewer);
+    socket.on('register-staff', async (staffId) => {
+        try {
+            const [rows] = await promisePool.query(
+                'SELECT * FROM interv WHERE Staff_ID = ?',
+                [staffId]
+            );
+
+            if (rows.length === 0) {
+                socket.emit('registration-error', 'Invalid Staff ID');
+                return;
             }
-        );
+
+            currentStaffId = staffId;
+            socket.emit('registration-success', rows[0]);
+        } catch (err) {
+            console.error('Registration error:', err);
+            socket.emit('registration-error', 'Database error');
+        }
     });
 
-    // Handle location updates
     socket.on('send-location', (data) => {
         if (!currentStaffId) return;
-
         const { latitude, longitude } = data;
-        
-        // Only broadcast the location update
+
         io.emit('receive-location', {
             userId: currentStaffId,
             latitude,
@@ -96,28 +89,22 @@ io.on('connection', (socket) => {
 });
 
 // Route: Add new interview
-app.post('/add_interview', (req, res) => {
+app.post('/add_interview', async (req, res) => {
     const { governorate, delegation, gender, age, job_status, marital_status, children_num } = req.body;
-  
-    console.log('Received client:', req.body); // Log the received data
-  
-    const query = `
-        INSERT INTO client ( governorate, delegation, gender, age, job_status, marital_status, children_num)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    `;
-  
-    connection.query(
-        query,
-        [ governorate, delegation, gender, age, job_status, marital_status, children_num],
-        (err, result) => {
-            if (err) {
-                console.error('Error inserting interview :', err);
-                return res.status(500).json({ error: 'Error adding an interview' });
-            }
-            res.status(200).json({ message: 'interview added successfully' });
-        }
-    );
-  });
+
+    try {
+        const [result] = await promisePool.query(
+            `INSERT INTO client (governorate, delegation, gender, age, job_status, marital_status, children_num)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [governorate, delegation, gender, age, job_status, marital_status, children_num]
+        );
+
+        res.status(200).json({ message: 'Interview added successfully' });
+    } catch (err) {
+        console.error('Error inserting interview:', err);
+        res.status(500).json({ error: 'Error adding an interview' });
+    }
+});
 
 // Start the server
 const PORT = process.env.PORT || 3000;
