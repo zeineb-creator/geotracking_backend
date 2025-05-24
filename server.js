@@ -111,37 +111,41 @@ function validateGeoJSON(req, res, next) {
 // In server.js, update the POST and PUT endpoints:
 
 
-app.put('/api/interviewers/:id', async (req, res) => {
-    const { id } = req.params;
-    const { name_, lastname, district, governorate, delegation, staff_status, gov_num } = req.body;
-    
-    // Map status values to database ENUM values
-    const statusMap = {
-        'Active': 'Active',
-        'On Leave': 'On Leave',
-        'Terminated': 'Terminated'
-    };
-    
-    const status = statusMap[staff_status] || 'Active';
-    
+// 📌 API: ADD new interviewer
+app.post('/api/interviewers', async (req, res) => {
+    const {
+        Staff_ID,
+        name_,
+        lastname,
+        district,
+        governorate,
+        delegation,
+        staff_status,
+        gov_num,
+        polygon_coords,
+        completed_interview_number
+    } = req.body;
+
+    // Validate required fields
+    if (!Staff_ID || !name_ || !lastname || !district || !governorate || !delegation || !staff_status || gov_num === undefined) {
+        return res.status(400).json({ error: 'Missing required fields' });
+    }
+
     try {
         const [result] = await promisePool.query(
-            `UPDATE interv
-             SET name_ = ?, lastname = ?, district = ?, governorate = ?, delegation = ?, staff_status = ?, gov_num = ?
-             WHERE Staff_ID = ?`,
-            [name_, lastname, district, governorate, delegation, status, gov_num, id]
+            `INSERT INTO interv 
+            (Staff_ID, name_, lastname, district, governorate, delegation, staff_status, gov_num, polygon_coords, completed_interview_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [Staff_ID, name_, lastname, district, governorate, delegation, staff_status, gov_num, polygon_coords || null, completed_interview_number || 0]
         );
-        
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ error: 'Interviewer not found' });
-        }
-        
-        res.json({ message: 'Interviewer updated' });
+
+        res.status(201).json({ message: 'Interviewer added successfully' });
     } catch (err) {
-        console.error('Error updating interviewer:', err);
+        console.error('Error adding interviewer:', err);
         res.status(500).json({ error: 'Database error' });
     }
 });
+
 
 
 // ====================================
